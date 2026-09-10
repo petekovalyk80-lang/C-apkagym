@@ -21,23 +21,30 @@ Android-first **gym workout tracker**. Dark theme, single neon-green accent `#C4
 - Project **anvil-73c7e**, Firestore DB `(default)`, region **eur3**. Anonymous Auth **enabled**.
 - Client config (public, safe by design) hardcoded in `lib/firebase.ts`. Auth uses `initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) })` and **`auth.authStateReady()`** in `ensureAnonymousAuth()` — CRITICAL: without it a NEW anonymous uid is created every launch (data loss). `firebase@12`: `getReactNativePersistence` lives only in the RN build → reached via a namespace cast in `lib/firebase.ts` (works at runtime via Metro).
 - Rules: `firestore.rules` (published in console). `exercises`/`planTemplates` → read for any authed user, no client write. `users/{uid}` + all subcollections → owner-only.
-- **Seed:** `node scripts/seed.js` (idempotent `set`, uses admin key). Seeds **47 exercises** + **3 planTemplates**. Re-run after editing the catalog/templates.
+- **Seed:** `node scripts/seed.js` (idempotent `set`, uses admin key). Seeds **55 exercises** + **4 planTemplates** (incl. `off-gym-bootcamp`). Re-run after editing the catalog/templates.
 
 ## Data model (Firestore)
 ```
-exercises/{id}                name, muscleGroup, description, imageUrl(GIF), bodyweight:bool, timed:bool
-planTemplates/{id}            name, daysPerWeek(3|4|6), workouts[]
+exercises/{id}                name, muscleGroup, description, effects(action&why), imageUrl(GIF), bodyweight:bool, timed:bool
+planTemplates/{id}            name, daysPerWeek(3|4|6|1), workouts[]   // 1 = off-gym-bootcamp
   workouts[]                  { workoutId, name, order, exercises[] }
     exercises[]               { exerciseId, order, targetSets, targetReps, targetRIR }
 users/{uid}                   units:'kg', trainingDaysPerWeek, activePlanId, createdAt
 users/{uid}/plans/{planId}    editable copy of a template (name, daysPerWeek, workouts[])
-users/{uid}/sessions/{id}     planId, workoutId, workoutName, date, startedAt, completedAt|null
+users/{uid}/sessions/{id}     planId, workoutId, workoutName, date, startedAt, completedAt|null, offGym:bool
   …/sessions/{id}/sets/{id}   exerciseId, setNumber, weight, reps, completedAt
 ```
 Templates: `full-body-3day`, `upper-lower-4day`, `ppl-6day`. Content is **evidence-based** (Israetel/RP, Nippard — from the user's research in `gemini-code-1788982675365.md`): exercises ordered by CNS tier (compound→machine→isolation), proper rep ranges + RIR. Rotation model (NO weekdays): "next workout" = next in `order` after the last session's `workoutId` (wraps).
 
 ## Features implemented
-Onboarding (3/4/6 → instantiate template copy) · Home (top card shows the **selected** workout, default = next; tapping a plan row = "CHECK IT" preview that swaps the top card, doesn't start; swipeable GIF strip; Start) · **Change plan** (`plan-select`, also refreshes the copy to latest template) · Workout session (lazy session on first set, log weight×reps, **bodyweight** = reps only, **timed** (plank) = seconds, RIR shown, finish/exit) · **History** (month calendar, green = workout days → tap → day details with sets) · Atlas (browse by muscle) · Exercise detail · Branding (logo splash `assets/brand/logo.jpg`, byline, adaptive icon/native splash in `app.json`) · **Full English**.
+Onboarding (3/4/6 → instantiate template copy) · Home (top card shows the **selected** workout, default = next; tapping a plan row = "CHECK IT" preview that swaps the top card, doesn't start; swipeable GIF strip; Start) · **Change plan** (`plan-select`, also refreshes the copy to latest template) · Workout session (lazy session on first set, log weight×reps, **bodyweight** = reps only, **timed** (plank) = seconds, RIR shown, finish/exit) · **History** (month calendar, green = workout days → tap → day details with sets) · Atlas (browse by muscle) · Exercise detail (technique + **"Action & effects"** blurb) · Branding (logo splash `assets/brand/logo.jpg`, byline, adaptive icon/native splash in `app.json`) · **Full English**.
+
+**Added this round (Sep 2026):**
+- **"Action & effects"** blurb on every exercise (`effects` field; shown under technique on exercise detail).
+- **Rest timer** (`components/RestTimer.tsx`): 90s countdown after a logged set, only when it's not the last suggested set and the exercise isn't `timed`; hitting 0 does nothing (no alarm), always skippable.
+- **Exercise swap** (workout screen): per-exercise sheet of same-`muscleGroup` alternatives; applies **today only**, keeps the slot's sets/reps/RIR. Local state, resets on leaving.
+- **Optional plank finisher**: virtual extra step after the last exercise (id `plank`); timed hold, fully skippable via "Finish workout". Logged as a normal `plank` set; doesn't affect rotation.
+- **Off Gym** (bodyweight bootcamp): startable from Home; `off-gym-bootcamp` template (9 moves), session flagged `offGym:true`. **Rotation-safe** via `getLastGymSession()` (skips off-gym). History colours off-gym-only days **turquoise** (`palette.offgym`), gym days green; day details show an "OFF GYM" tag.
 
 ## Key files
 - `app/_layout.tsx` — root, `BrandSplash` (logo, min 2.2s), Stack routes.
@@ -55,12 +62,16 @@ Onboarding (3/4/6 → instantiate template copy) · Home (top card shows the **s
 - pull-up / dips / push-up / plank / hanging-leg-raise / ab-wheel are `bodyweight` (reps only, no kg). plank is also `timed` (seconds). Weighted pull-ups/dips = future feature.
 - **Secrets (gitignored, never commit):** `*firebase-adminsdk*.json` (admin key, used only by seed), `google-services.json`. The Firebase web `apiKey` in `lib/firebase.ts` is a **public client id** (safe; security is Firestore rules).
 
+## Agreed feature roadmap (user, Sep 2026)
+Priority order the user approved: **1) plank finisher ✅ · 2) rest timer ✅ · 3) exercise swap ✅ · 4) Off Gym ✅ · 5) charts + auto-progression (TODO).** Items 1–4 are DONE (see "Added this round"). Remaining headline item:
+- **Charts + auto-progression.** Progress charts via `collectionGroup('sets')` grouped by `exerciseId` over `completedAt` (est. 1RM / top-set / volume trend). Auto-progression = "beat your last": show last session's top set for the current exercise on the workout screen and suggest the next target. Likely a new tab or a section on exercise detail. Note: `collectionGroup` needs a Firestore composite index — expect to add one.
+
 ## Next steps (do each in a fresh session)
-1. **Exercise "Action & effects" descriptions (requested).** Every exercise should get a 2–3 sentence English blurb — NOT technique (already have `description` for that), but *what it does / why*: which region of the muscle it hits (e.g. lower/upper chest), the mechanism (mechanical tension, stretch, metabolic), and expected results. Small–medium task: add a field (e.g. `effects`) to each of the **47** entries in `scripts/seed.js` EXERCISES, re-seed, and render it in `app/exercise/[id].tsx` under an "Action & effects" heading below the technique text. Also add `effects?: string` to `Exercise` in `lib/types.ts`. Example tone (user-approved): *"Hits mainly the mid and lower chest. Heavy loading drives huge mechanical tension, stimulating growth in chest thickness and width. Expect gains in chest size and pushing strength, with strong triceps and front-delt support."*
+1. ~~Exercise "Action & effects" descriptions~~ **DONE** — `effects` on all exercises, rendered on exercise detail.
 2. **AUTH — open account creation.** Currently anonymous single-user/device. Add email/password and/or Google sign-in via **`linkWithCredential`** on the existing anonymous user → keeps the same `uid`, **zero data migration**. Add a sign-in/account screen + sign-out. Model already `users/{uid}`, designed "single-user now, multi-user later".
 3. **Native splash shows anvil only (no logo text).** Android 12+ native splash uses `assets/brand/anvil.png` (anvil on near-black, no wordmark) via `app.json` expo-splash-screen. The full logo-with-text (`assets/brand/logo.jpg`, from `logo1.jpg`) only shows in the CODED `BrandSplash` (app/_layout.tsx) after JS loads. To show branded text at cold start, either swap the native splash `image` to a text-inclusive asset (note: Android 12 crops the splash icon to a centered circle/box, so a wide wordmark may clip — may need a padded square version) or accept native = mark only + coded = full logo.
 4. **Marketing website** — simple site for the app (separate project/repo). Paste this HANDOFF.md there for context.
-5. **Polish backlog:** rest timer, edit/delete a logged set, progress charts (`collectionGroup('sets')` by `exerciseId` over `completedAt`), volume guardrails (MEV 8–10 / MAV 12–18 / block >20–22 per muscle/wk), optional weighted bodyweight, "pick today's focus" custom builder.
+5. **Polish backlog:** ~~rest timer~~ (done), edit/delete a logged set, progress charts (`collectionGroup('sets')` by `exerciseId` over `completedAt`), volume guardrails (MEV 8–10 / MAV 12–18 / block >20–22 per muscle/wk), optional weighted bodyweight, "pick today's focus" custom builder. Ideas raised but not chosen: exercise-swap "change in plan (permanent)" option; configurable rest duration per exercise; streaks/gamification.
 
 ## Billing / safety
 Firebase: keep the **Spark (free)** plan → billing impossible. If on Blaze, set a budget alert. No Gemini/other paid APIs are integrated (GIFs are free). Consider **App Check** before any public release (anonymous auth is open).
