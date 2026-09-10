@@ -23,6 +23,11 @@ export const palette = {
 
   danger: '#EF4444',
   success: '#C4F82A',
+
+  // Off Gym (trening bez siłowni, sama masa ciała) — turkus, wyraźnie inny od zieleni.
+  offgym: '#2DD4BF',
+  offgymDark: '#0E1512', // tekst na turkusie
+  offgymDim: 'rgba(45, 212, 191, 0.14)',
 } as const;
 
 export const spacing = {
@@ -54,6 +59,8 @@ export const muscleLabelPl: Record<string, string> = {
   hamstrings: 'Hamstrings',
   calves: 'Calves',
   'posterior-chain': 'Posterior chain',
+  glutes: 'Glutes',
+  'full-body': 'Full body',
   core: 'Core',
 };
 

@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -18,7 +18,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GifImage from '@/components/GifImage';
 import RestTimer from '@/components/RestTimer';
 import { muscleLabel, palette, radius, spacing } from '@/constants/theme';
-import { completeSession, logSet, startSession } from '@/lib/db';
+import { OFF_GYM_TEMPLATE_ID, completeSession, fetchTemplate, logSet, startSession } from '@/lib/db';
+import type { Workout } from '@/lib/types';
 import { useStore } from '@/store/useStore';
 
 interface LoggedSet {
@@ -40,9 +41,22 @@ export default function WorkoutScreen() {
   const exercises = useStore((s) => s.exercises);
   const exerciseById = useStore((s) => s.exerciseById);
 
+  const isOffGym = workoutId === OFF_GYM_TEMPLATE_ID;
+  const [offGymWorkout, setOffGymWorkout] = useState<Workout | null>(null);
+
+  useEffect(() => {
+    if (!isOffGym) return;
+    let active = true;
+    (async () => {
+      const tpl = await fetchTemplate(OFF_GYM_TEMPLATE_ID);
+      if (active) setOffGymWorkout(tpl?.workouts?.[0] ?? null);
+    })();
+    return () => { active = false; };
+  }, [isOffGym]);
+
   const workout = useMemo(
-    () => plan?.workouts.find((w) => w.workoutId === workoutId) ?? null,
-    [plan, workoutId],
+    () => (isOffGym ? offGymWorkout : plan?.workouts.find((w) => w.workoutId === workoutId) ?? null),
+    [plan, workoutId, isOffGym, offGymWorkout],
   );
 
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -64,7 +78,8 @@ export default function WorkoutScreen() {
   async function ensureSession(): Promise<string | null> {
     if (sessionId) return sessionId;
     if (!uid || !plan || !workout) return null;
-    const id = await startSession(uid, plan.id, workout.workoutId, workout.name);
+    const pid = isOffGym ? OFF_GYM_TEMPLATE_ID : plan.id;
+    const id = await startSession(uid, pid, workout.workoutId, workout.name, isOffGym);
     setSessionId(id);
     return id;
   }
@@ -107,7 +122,11 @@ export default function WorkoutScreen() {
   if (!workout) {
     return (
       <View style={styles.center}>
-        <Text style={styles.muted}>Workout not found.</Text>
+        {isOffGym ? (
+          <ActivityIndicator color={palette.accent} />
+        ) : (
+          <Text style={styles.muted}>Workout not found.</Text>
+        )}
       </View>
     );
   }

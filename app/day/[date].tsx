@@ -14,6 +14,7 @@ const MO = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'Aug
 interface DaySession {
   id: string;
   workoutName: string;
+  offGym: boolean;
   groups: { exerciseId: string; sets: SetEntry[] }[];
 }
 
@@ -48,7 +49,7 @@ export default function DayDetail() {
           byEx.get(set.exerciseId)!.push(set);
         }
         const wName = s.workoutName ?? plan?.workouts.find((w) => w.workoutId === s.workoutId)?.name ?? s.workoutId;
-        built.push({ id: s.id, workoutName: wName, groups: order.map((id) => ({ exerciseId: id, sets: byEx.get(id)! })) });
+        built.push({ id: s.id, workoutName: wName, offGym: !!s.offGym, groups: order.map((id) => ({ exerciseId: id, sets: byEx.get(id)! })) });
       }
       if (active) { setItems(built); setLoading(false); }
     })();
@@ -76,7 +77,14 @@ export default function DayDetail() {
         ) : (
           items.map((s) => (
             <View key={s.id} style={styles.session}>
-              <Text style={styles.workoutName}>{s.workoutName}</Text>
+              <View style={styles.sessionHead}>
+                <Text style={[styles.workoutName, s.offGym && styles.workoutNameOffgym]}>{s.workoutName}</Text>
+                {s.offGym && (
+                  <View style={styles.offgymTag}>
+                    <Text style={styles.offgymTagText}>OFF GYM</Text>
+                  </View>
+                )}
+              </View>
               {s.groups.map((g) => {
                 const ex = exerciseById(g.exerciseId);
                 const timed = !!ex?.timed;
@@ -108,7 +116,11 @@ const styles = StyleSheet.create({
   heading: { color: palette.text, fontSize: 20, fontWeight: '900', textTransform: 'capitalize', marginBottom: spacing.lg },
   empty: { color: palette.textMuted, marginTop: spacing.lg },
   session: { marginBottom: spacing.xl },
-  workoutName: { color: palette.accent, fontSize: 17, fontWeight: '900', marginBottom: spacing.md },
+  sessionHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+  workoutName: { color: palette.accent, fontSize: 17, fontWeight: '900' },
+  workoutNameOffgym: { color: palette.offgym },
+  offgymTag: { backgroundColor: palette.offgymDim, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 },
+  offgymTagText: { color: palette.offgym, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
   exercise: { backgroundColor: palette.card, borderRadius: radius.md, borderWidth: 1, borderColor: palette.border, padding: spacing.md, marginBottom: spacing.sm },
   exName: { color: palette.text, fontSize: 15, fontWeight: '800', marginBottom: spacing.sm },
   setRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 4 },

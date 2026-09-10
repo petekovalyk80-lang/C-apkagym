@@ -51,6 +51,9 @@ export const templateIdForDays: Record<number, string> = {
   6: 'ppl-6day',
 };
 
+/** Szablon Off Gym (bootcamp, sama masa ciała) — pobierany na żądanie, poza rotacją planu. */
+export const OFF_GYM_TEMPLATE_ID = 'off-gym-bootcamp';
+
 // ── Użytkownik + onboarding ───────────────────────────────────────────
 
 /** Pobiera dokument użytkownika (lub null, jeśli jeszcze nie ma). */
@@ -127,6 +130,24 @@ export async function getLastSession(uid: string): Promise<SessionDoc | null> {
 }
 
 /**
+ * Ostatnia sesja SIŁOWA (pomija Off Gym) — do rotacji planu. Off Gym nie może
+ * przestawiać kolejki treningów siłowych, więc szukamy ostatniej sesji `!offGym`.
+ */
+export async function getLastGymSession(uid: string): Promise<SessionDoc | null> {
+  const q = query(
+    collection(db, 'users', uid, 'sessions'),
+    orderBy('startedAt', 'desc'),
+    limit(20),
+  );
+  const snap = await getDocs(q);
+  for (const d of snap.docs) {
+    const s = { id: d.id, ...(d.data() as Omit<SessionDoc, 'id'>) };
+    if (!s.offGym) return s;
+  }
+  return null;
+}
+
+/**
  * Następny trening w rotacji: po workoutId ostatniej sesji bierze kolejny wg
  * `order` (po ostatnim → wraca do pierwszego). Bez historii → pierwszy trening.
  */
@@ -149,6 +170,7 @@ export async function startSession(
   planId: string,
   workoutId: string,
   workoutName: string,
+  offGym = false,
 ): Promise<string> {
   const now = Timestamp.now();
   const ref = await addDoc(collection(db, 'users', uid, 'sessions'), {
@@ -158,6 +180,7 @@ export async function startSession(
     date: now,
     startedAt: now,
     completedAt: null,
+    offGym,
   });
   return ref.id;
 }

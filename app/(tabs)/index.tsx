@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import GifImage from '@/components/GifImage';
 import { palette, radius, spacing } from '@/constants/theme';
-import { computeNextWorkout, getLastSession } from '@/lib/db';
+import { OFF_GYM_TEMPLATE_ID, computeNextWorkout, getLastGymSession } from '@/lib/db';
 import type { SessionDoc, Workout } from '@/lib/types';
 import { useStore } from '@/store/useStore';
 
@@ -30,7 +30,7 @@ export default function HomeScreen() {
       setSelectedId(null); // po powrocie na home wracamy do „następnego"
       (async () => {
         if (!uid || !plan) return;
-        const lastSession = await getLastSession(uid);
+        const lastSession = await getLastGymSession(uid);
         if (!active) return;
         setLast(lastSession);
         setNext(computeNextWorkout(plan, lastSession?.workoutId ?? null));
@@ -154,6 +154,24 @@ export default function HomeScreen() {
           </Pressable>
         );
       })}
+
+      {/* Off Gym — trening bez siłowni (sama masa ciała) */}
+      <Text style={[styles.sectionLabel, { marginTop: spacing.xl }]}>NO GYM? NO PROBLEM</Text>
+      <Pressable
+        onPress={() => router.push({ pathname: '/workout/[workoutId]', params: { workoutId: OFF_GYM_TEMPLATE_ID } })}
+        style={({ pressed }) => [styles.offgymCard, pressed && styles.pressed]}
+      >
+        <View style={styles.offgymIcon}>
+          <MaterialCommunityIcons name="home-variant" size={22} color={palette.offgym} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.offgymTitle}>Off Gym · Bodyweight</Text>
+          <Text style={styles.offgymSub}>
+            Bootcamp circuit, zero equipment — for travel or rest days. Logged in history, keeps your plan rotation intact.
+          </Text>
+        </View>
+        <MaterialCommunityIcons name="chevron-right" size={22} color={palette.offgym} />
+      </Pressable>
     </ScrollView>
   );
 }
@@ -204,4 +222,12 @@ const styles = StyleSheet.create({
   rowName: { color: palette.text, fontSize: 16, fontWeight: '700' },
   rowMeta: { color: palette.textMuted, fontSize: 12, marginTop: 2 },
   nextTag: { color: palette.accent, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  offgymCard: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: palette.card, marginHorizontal: spacing.lg, marginBottom: spacing.sm,
+    borderRadius: radius.md, borderWidth: 1, borderColor: palette.offgym, padding: spacing.md,
+  },
+  offgymIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.offgymDim, alignItems: 'center', justifyContent: 'center' },
+  offgymTitle: { color: palette.text, fontSize: 16, fontWeight: '800' },
+  offgymSub: { color: palette.textMuted, fontSize: 12, lineHeight: 17, marginTop: 3 },
 });

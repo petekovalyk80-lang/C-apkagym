@@ -26,7 +26,12 @@ const GIF_BASE = 'https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@1.
 const gif = (p) => `${GIF_BASE}/${p}.gif`;
 
 // Ćwiczenia z masą ciała — bez pola ciężaru w apce.
-const BODYWEIGHT = new Set(['push-up', 'pull-up', 'dips', 'plank', 'hanging-leg-raise', 'ab-wheel']);
+const BODYWEIGHT = new Set([
+  'push-up', 'pull-up', 'dips', 'plank', 'hanging-leg-raise', 'ab-wheel',
+  // Off Gym (bootcamp, zero sprzętu):
+  'bw-burpee', 'bw-jump-squat', 'bw-forward-lunge', 'bw-inchworm',
+  'bw-mountain-climber', 'bw-glute-bridge', 'bw-russian-twist', 'bw-crunch',
+]);
 // Ćwiczenia mierzone czasem (sekundy) zamiast powtórzeń.
 const TIMED = new Set(['plank']);
 
@@ -86,6 +91,15 @@ const EXERCISES = [
   ['hanging-leg-raise', 'Hanging Leg Raise', 'core', 'abs/hanging-leg-raise', 'Hang from a bar and raise your legs to work the lower abs.', 'Targets the lower abs and hip flexors. Raising the legs against gravity loads the abs through a long range. Builds lower-ab strength and control, plus grip endurance.'],
   ['cable-crunch', 'Cable Crunch', 'core', 'abs/cable-kneeling-crunch', 'Kneel and crunch your torso down against cable resistance for the abs.', 'Works the abs (rectus abdominis) with added load. Crunching against cable resistance lets you progressively overload the abs like any other muscle. Builds ab thickness and the six-pack blocks.'],
   ['ab-wheel', 'Ab Wheel Rollout', 'core', 'abs/barbell-rollerout', 'Roll out and back while keeping the core braced and the spine neutral.', 'Trains the whole core as a powerful anti-extension. Rolling out loads the abs in a long stretch while resisting spinal extension. Builds serious core strength and rigid, dense abs.'],
+  // ——— OFF GYM (bootcamp, zero sprzętu, sama masa ciała) ———
+  ['bw-burpee', 'Burpee', 'full-body', 'cardio/burpee', 'From standing, drop into a squat, kick your feet back to a plank, do a push-up, jump the feet in and explode straight up.', 'A full-body conditioning move hitting chest, legs, and core while spiking the heart rate. Builds work capacity, explosive power, and endurance. The go-to bootcamp exercise for burning calories with zero equipment.'],
+  ['bw-jump-squat', 'Jump Squat', 'legs', 'glutes/jump-squat', 'Squat down, then explode straight up off both feet, landing softly back into the squat.', 'Targets the quads and glutes with an explosive, plyometric demand. The jump recruits fast-twitch fibres for power and adds a strong conditioning hit. Builds leg strength, athletic power, and endurance.'],
+  ['bw-forward-lunge', 'Forward Lunge', 'legs', 'glutes/forward-lunge-male', 'Step forward and lower until both knees are bent about 90°, then push back to standing. Alternate legs.', 'Works the quads and glutes one leg at a time through a long range. Single-leg loading builds balance, fixes imbalances, and stretches the working leg under tension. A bootcamp staple for leg size and control without weights.'],
+  ['bw-inchworm', 'Inchworm Walkout', 'full-body', 'abs/inchworm', 'From standing, hinge and walk your hands out to a plank, hold briefly, then walk the hands back and stand up.', 'A full-body move that loads the core in an anti-extension brace while stretching the hamstrings. Builds core stability, shoulder control, and mobility at once. Doubles as a warm-up and a conditioning exercise.'],
+  ['bw-mountain-climber', 'Mountain Climber', 'core', 'cardio/mountain-climber', 'In a plank, drive one knee toward your chest, then switch legs quickly as if running in place.', 'Trains the core, hip flexors, and shoulders while raising the heart rate. The fast knee drives build ab endurance and conditioning under a plank brace. A low-impact way to burn energy and strengthen the midsection.'],
+  ['bw-glute-bridge', 'Glute Bridge', 'glutes', 'glutes/low-glute-bridge-on-floor', 'Lie on your back with knees bent, drive through your heels to lift your hips into a straight line, then lower.', 'Isolates the glutes through hip extension with the floor supporting the spine. The top squeeze builds glute strength and activation with no equipment. Great for posterior-chain strength and hip health.'],
+  ['bw-russian-twist', 'Russian Twist', 'core', 'abs/russian-twist', 'Sit with knees bent and torso leaned back, then rotate side to side, touching the floor by each hip.', 'Targets the obliques and deep core through rotation. Twisting under tension builds midsection strength and rotational control. Chisels the sides of the abs and supports a stable trunk.'],
+  ['bw-crunch', 'Floor Crunch', 'core', 'abs/crunch-floor', 'Lie on your back with knees bent, curl your shoulders off the floor toward your knees, then lower under control.', 'Isolates the rectus abdominis — the six-pack muscle. The short, controlled curl builds ab thickness and endurance. A simple, scalable core builder you can do anywhere.'],
 ];
 
 // Skrót ćwiczenia w treningu: [exerciseId, targetSets, targetReps, targetRIR]
@@ -177,6 +191,21 @@ const TEMPLATES = [
       ['legs-b', 'Legs B', [
         ['romanian-deadlift', 3, '6-8', '2'], ['hack-squat', 3, '8-10', '1-2'], ['leg-curl', 3, '10-12', '0-1'],
         ['bulgarian-split-squat', 2, '10-12', '1'], ['seated-calf-raise', 4, '12-15', '0'], ['hanging-leg-raise', 3, '12-15', '1'],
+      ]],
+    ]),
+  },
+  // Off Gym — jeden gotowy trening bootcamp z masą ciała (hotel/urlop/delegacja).
+  // NIE mapowany w templateIdForDays → nigdy nie staje się aktywnym planem usera;
+  // pobierany na żądanie i logowany jako sesja offGym (nie wpływa na rotację planu).
+  {
+    id: 'off-gym-bootcamp',
+    name: 'Off Gym · Bodyweight',
+    daysPerWeek: 1,
+    workouts: buildWorkouts([
+      ['off-gym-bootcamp', 'Bodyweight Bootcamp', [
+        ['bw-burpee', 3, '8-12', '1-2'], ['bw-jump-squat', 3, '12-15', '1'], ['bw-forward-lunge', 3, '10-12', '1'],
+        ['push-up', 3, '10-20', '1'], ['bw-inchworm', 3, '6-8', '1'], ['bw-mountain-climber', 3, '20-30', '1'],
+        ['bw-glute-bridge', 3, '15-20', '0-1'], ['bw-russian-twist', 3, '20-30', '1'], ['bw-crunch', 3, '15-20', '1'],
       ]],
     ]),
   },

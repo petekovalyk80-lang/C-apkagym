@@ -36,13 +36,17 @@ export default function HistoryScreen() {
     }, [uid]),
   );
 
-  // Dni z treningiem: dateStr → liczba sesji
+  // Dni z treningiem: dateStr → { gym, offgym }. Dzień z jakąkolwiek sesją siłową = zielony;
+  // dzień wyłącznie Off Gym = turkusowy.
   const workoutDays = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { gym: boolean; offgym: boolean }>();
     for (const s of sessions) {
       if (!s.date?.toDate) continue;
       const key = dateStr(s.date.toDate());
-      map.set(key, (map.get(key) ?? 0) + 1);
+      const cur = map.get(key) ?? { gym: false, offgym: false };
+      if (s.offGym) cur.offgym = true;
+      else cur.gym = true;
+      map.set(key, cur);
     }
     return map;
   }, [sessions]);
@@ -94,7 +98,9 @@ export default function HistoryScreen() {
         {cells.map((day, i) => {
           if (day == null) return <View key={i} style={styles.cell} />;
           const ds = `${cursor.y}-${pad(cursor.m + 1)}-${pad(day)}`;
-          const has = workoutDays.has(ds);
+          const info = workoutDays.get(ds);
+          const has = !!info;
+          const offgymOnly = !!info && info.offgym && !info.gym;
           const isToday = ds === todayStr;
           return (
             <Pressable
@@ -103,8 +109,8 @@ export default function HistoryScreen() {
               disabled={!has}
               onPress={() => router.push({ pathname: '/day/[date]', params: { date: ds } })}
             >
-              <View style={[styles.dayInner, has && styles.dayDone, isToday && !has && styles.dayToday]}>
-                <Text style={[styles.dayText, has && styles.dayTextDone]}>{day}</Text>
+              <View style={[styles.dayInner, info?.gym && styles.dayDone, offgymOnly && styles.dayOffgym, isToday && !has && styles.dayToday]}>
+                <Text style={[styles.dayText, has && (offgymOnly ? styles.dayTextOffgym : styles.dayTextDone)]}>{day}</Text>
               </View>
             </Pressable>
           );
@@ -113,10 +119,13 @@ export default function HistoryScreen() {
 
       <View style={styles.legend}>
         <View style={styles.legendDot} />
-        <Text style={styles.legendText}>
-          {totalThisMonth > 0 ? `${totalThisMonth} workout${totalThisMonth === 1 ? '' : 's'} this month — tap a day to see details` : 'No workouts this month'}
-        </Text>
+        <Text style={styles.legendKey}>Gym</Text>
+        <View style={styles.legendDotOffgym} />
+        <Text style={styles.legendKey}>Off Gym</Text>
       </View>
+      <Text style={styles.legendText}>
+        {totalThisMonth > 0 ? `${totalThisMonth} training day${totalThisMonth === 1 ? '' : 's'} this month — tap a day to see details` : 'No training days this month'}
+      </Text>
     </View>
   );
 }
@@ -135,10 +144,14 @@ const styles = StyleSheet.create({
   cell: { width: CELL as any, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', padding: 3 },
   dayInner: { width: '100%', aspectRatio: 1, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   dayDone: { backgroundColor: palette.accent },
+  dayOffgym: { backgroundColor: palette.offgym },
   dayToday: { borderWidth: 1.5, borderColor: palette.border },
   dayText: { color: palette.textMuted, fontSize: 15, fontWeight: '700' },
   dayTextDone: { color: palette.accentDark, fontWeight: '900' },
+  dayTextOffgym: { color: palette.offgymDark, fontWeight: '900' },
   legend: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, marginTop: spacing.xl },
   legendDot: { width: 14, height: 14, borderRadius: 4, backgroundColor: palette.accent },
-  legendText: { color: palette.textMuted, fontSize: 13, flex: 1, lineHeight: 18 },
+  legendDotOffgym: { width: 14, height: 14, borderRadius: 4, backgroundColor: palette.offgym, marginLeft: spacing.md },
+  legendKey: { color: palette.textMuted, fontSize: 13, fontWeight: '700' },
+  legendText: { color: palette.textMuted, fontSize: 13, lineHeight: 18, paddingHorizontal: spacing.lg, marginTop: spacing.sm },
 });

@@ -68,6 +68,8 @@ export interface SessionDoc {
   date: Timestamp;
   startedAt: Timestamp;
   completedAt: Timestamp | null;
+  /** Trening „Off Gym" (sama masa ciała, bez siłowni) — inny kolor w kalendarzu, poza rotacją planu. */
+  offGym?: boolean;
 }
 
 /** Pojedyncza seria (`…/sessions/{sessionId}/sets/{setId}`). */
