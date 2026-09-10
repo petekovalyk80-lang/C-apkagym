@@ -31,7 +31,15 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+
+# secrets — NIGDY nie commitować (Firebase)
+google-services*.json
+GoogleService-Info.plist
+*firebase-adminsdk*.json
+service-account*.json
+serviceAccount*.json
 
 # typescript
 *.tsbuildinfo

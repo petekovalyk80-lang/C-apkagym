@@ -1,0 +1,66 @@
+# ANVIL — Handoff / Continuation Guide
+
+Self-contained brief so a **fresh session** (new context window, new project, or another dev/AI) can take over. Read this first; it is the source of truth. (The old `CLAUDE.md` in this repo is the day‑1 ruleset and is **stale** — it mentions Next.js/Supabase/Vercel that were **never used**; ignore its stack parts.)
+
+## What Anvil is
+Android-first **gym workout tracker**. Dark theme, single neon-green accent `#C4F82A`, English UI, tagline "turn sweat into muscle", "by PeteKovSoftware". Anonymous per-device user (no login yet). Working dir: `C:\apkagym`.
+
+## Stack
+- **Expo SDK 57**, React Native 0.86, React 19, **TypeScript**, **expo-router** (file-based, `experiments.typedRoutes`).
+- **Firebase JS SDK** (`firebase` package — the WEB sdk, **not** `@react-native-firebase`) → runs in **Expo Go**, no native build needed. Firestore + **anonymous Auth**.
+- **zustand** (state), **expo-image** (animated GIFs), `@react-native-async-storage/async-storage` (auth persistence).
+- Exercise GIFs: public CDN `https://cdn.jsdelivr.net/gh/JahelCuadrado/ExerciseGymGifsDB@1.2.0/<folder>/<file>.gif` (free, no key).
+
+## Run / build / verify
+- **Phone (dev):** `npx expo start --port 8081` → scan QR in Expo Go (phone + PC on same Wi‑Fi). Custom launcher icon/splash only appear in a real build, not Expo Go.
+- **Web preview (fast iterate):** `npx expo start --web` (port 8081). NOTE: web pane crops the bottom ~10px → **bottom tab labels can't be screenshotted on web**; verify the tab bar on a device.
+- **Typecheck:** `npx tsc --noEmit`. Route-type errors for new routes clear once Metro runs (it regenerates `.expo/types`).
+- **EAS build (installable APK):** `npx eas-cli@latest build -p android --profile preview --non-interactive --no-wait`. Watch: `npx eas-cli@latest build:view <id>` (grep `^Status` → finished/errored). Logged in as **piotrekk80** (petekovalyk80@gmail.com). Free queue can take 30+ min. APK link = "Application Archive URL".
+
+## Firebase
+- Project **anvil-73c7e**, Firestore DB `(default)`, region **eur3**. Anonymous Auth **enabled**.
+- Client config (public, safe by design) hardcoded in `lib/firebase.ts`. Auth uses `initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) })` and **`auth.authStateReady()`** in `ensureAnonymousAuth()` — CRITICAL: without it a NEW anonymous uid is created every launch (data loss). `firebase@12`: `getReactNativePersistence` lives only in the RN build → reached via a namespace cast in `lib/firebase.ts` (works at runtime via Metro).
+- Rules: `firestore.rules` (published in console). `exercises`/`planTemplates` → read for any authed user, no client write. `users/{uid}` + all subcollections → owner-only.
+- **Seed:** `node scripts/seed.js` (idempotent `set`, uses admin key). Seeds **47 exercises** + **3 planTemplates**. Re-run after editing the catalog/templates.
+
+## Data model (Firestore)
+```
+exercises/{id}                name, muscleGroup, description, imageUrl(GIF), bodyweight:bool, timed:bool
+planTemplates/{id}            name, daysPerWeek(3|4|6), workouts[]
+  workouts[]                  { workoutId, name, order, exercises[] }
+    exercises[]               { exerciseId, order, targetSets, targetReps, targetRIR }
+users/{uid}                   units:'kg', trainingDaysPerWeek, activePlanId, createdAt
+users/{uid}/plans/{planId}    editable copy of a template (name, daysPerWeek, workouts[])
+users/{uid}/sessions/{id}     planId, workoutId, workoutName, date, startedAt, completedAt|null
+  …/sessions/{id}/sets/{id}   exerciseId, setNumber, weight, reps, completedAt
+```
+Templates: `full-body-3day`, `upper-lower-4day`, `ppl-6day`. Content is **evidence-based** (Israetel/RP, Nippard — from the user's research in `gemini-code-1788982675365.md`): exercises ordered by CNS tier (compound→machine→isolation), proper rep ranges + RIR. Rotation model (NO weekdays): "next workout" = next in `order` after the last session's `workoutId` (wraps).
+
+## Features implemented
+Onboarding (3/4/6 → instantiate template copy) · Home (top card shows the **selected** workout, default = next; tapping a plan row = "CHECK IT" preview that swaps the top card, doesn't start; swipeable GIF strip; Start) · **Change plan** (`plan-select`, also refreshes the copy to latest template) · Workout session (lazy session on first set, log weight×reps, **bodyweight** = reps only, **timed** (plank) = seconds, RIR shown, finish/exit) · **History** (month calendar, green = workout days → tap → day details with sets) · Atlas (browse by muscle) · Exercise detail · Branding (logo splash `assets/brand/logo.jpg`, byline, adaptive icon/native splash in `app.json`) · **Full English**.
+
+## Key files
+- `app/_layout.tsx` — root, `BrandSplash` (logo, min 2.2s), Stack routes.
+- `app/(tabs)/_layout.tsx` — tabs Workout/History/Atlas · `index.tsx` (home) · `history.tsx` (calendar) · `atlas.tsx`.
+- `app/onboarding.tsx`, `app/plan-select.tsx`, `app/workout/[workoutId].tsx`, `app/day/[date].tsx`, `app/exercise/[id].tsx`.
+- `lib/firebase.ts` (init + `ensureAnonymousAuth`), `lib/db.ts` (all Firestore fns), `lib/types.ts`.
+- `store/useStore.ts` (bootstrap, exercises map, plan, `completeOnboarding`, `switchPlan`).
+- `constants/theme.ts` (palette + `muscleLabel`), `components/GifImage.tsx`, `components/ExerciseRow.tsx`.
+- `scripts/seed.js`, `firestore.rules`, `eas.json`, `app.json`.
+
+## Gotchas
+- Use **`router.push`**, not `Link asChild` (RN-web expands to content width).
+- After adding a route file, `tsc` errors on its typed href until Metro regenerates `.expo/types` — start the dev/web server once.
+- Plan template **names are English** ("(3 days)"); a user's existing plan **copy** keeps its old name until onboarding/Change re-instantiates. Fresh install onboards fresh → English.
+- pull-up / dips / push-up / plank / hanging-leg-raise / ab-wheel are `bodyweight` (reps only, no kg). plank is also `timed` (seconds). Weighted pull-ups/dips = future feature.
+- **Secrets (gitignored, never commit):** `*firebase-adminsdk*.json` (admin key, used only by seed), `google-services.json`. The Firebase web `apiKey` in `lib/firebase.ts` is a **public client id** (safe; security is Firestore rules).
+
+## Next steps (do each in a fresh session)
+1. **Exercise "Action & effects" descriptions (requested).** Every exercise should get a 2–3 sentence English blurb — NOT technique (already have `description` for that), but *what it does / why*: which region of the muscle it hits (e.g. lower/upper chest), the mechanism (mechanical tension, stretch, metabolic), and expected results. Small–medium task: add a field (e.g. `effects`) to each of the **47** entries in `scripts/seed.js` EXERCISES, re-seed, and render it in `app/exercise/[id].tsx` under an "Action & effects" heading below the technique text. Also add `effects?: string` to `Exercise` in `lib/types.ts`. Example tone (user-approved): *"Hits mainly the mid and lower chest. Heavy loading drives huge mechanical tension, stimulating growth in chest thickness and width. Expect gains in chest size and pushing strength, with strong triceps and front-delt support."*
+2. **AUTH — open account creation.** Currently anonymous single-user/device. Add email/password and/or Google sign-in via **`linkWithCredential`** on the existing anonymous user → keeps the same `uid`, **zero data migration**. Add a sign-in/account screen + sign-out. Model already `users/{uid}`, designed "single-user now, multi-user later".
+3. **Native splash shows anvil only (no logo text).** Android 12+ native splash uses `assets/brand/anvil.png` (anvil on near-black, no wordmark) via `app.json` expo-splash-screen. The full logo-with-text (`assets/brand/logo.jpg`, from `logo1.jpg`) only shows in the CODED `BrandSplash` (app/_layout.tsx) after JS loads. To show branded text at cold start, either swap the native splash `image` to a text-inclusive asset (note: Android 12 crops the splash icon to a centered circle/box, so a wide wordmark may clip — may need a padded square version) or accept native = mark only + coded = full logo.
+4. **Marketing website** — simple site for the app (separate project/repo). Paste this HANDOFF.md there for context.
+5. **Polish backlog:** rest timer, edit/delete a logged set, progress charts (`collectionGroup('sets')` by `exerciseId` over `completedAt`), volume guardrails (MEV 8–10 / MAV 12–18 / block >20–22 per muscle/wk), optional weighted bodyweight, "pick today's focus" custom builder.
+
+## Billing / safety
+Firebase: keep the **Spark (free)** plan → billing impossible. If on Blaze, set a budget alert. No Gemini/other paid APIs are integrated (GIFs are free). Consider **App Check** before any public release (anonymous auth is open).
