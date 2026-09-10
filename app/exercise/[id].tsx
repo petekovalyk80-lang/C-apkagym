@@ -36,6 +36,13 @@ export default function ExerciseDetail() {
         </View>
         <Text style={styles.title}>{exercise.name}</Text>
         {!!exercise.description && <Text style={styles.desc}>{exercise.description}</Text>}
+
+        {!!exercise.effects && (
+          <>
+            <Text style={styles.sectionTitle}>Action & effects</Text>
+            <Text style={styles.desc}>{exercise.effects}</Text>
+          </>
+        )}
       </ScrollView>
     </>
   );
@@ -50,4 +57,5 @@ const styles = StyleSheet.create({
   muscleText: { color: palette.accent, fontWeight: '800', fontSize: 13 },
   title: { color: palette.text, fontSize: 24, fontWeight: '900', lineHeight: 30 },
   desc: { color: palette.textMuted, fontSize: 15, lineHeight: 22, marginTop: spacing.md },
+  sectionTitle: { color: palette.accent, fontSize: 13, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase', marginTop: spacing.lg },
 });

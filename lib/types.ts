@@ -6,6 +6,8 @@ export interface Exercise {
   name: string;
   muscleGroup: string;
   description: string;
+  /** Działanie i efekty — co ćwiczenie robi / na co wpływa (nie technika). */
+  effects?: string;
   imageUrl: string;
   /** Ćwiczenie z masą ciała (bez obciążenia) — bez pola ciężaru. */
   bodyweight?: boolean;
