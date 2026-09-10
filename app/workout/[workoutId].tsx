@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -15,6 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import GifImage from '@/components/GifImage';
+import RestTimer from '@/components/RestTimer';
 import { muscleLabel, palette, radius, spacing } from '@/constants/theme';
 import { completeSession, logSet, startSession } from '@/lib/db';
 import { useStore } from '@/store/useStore';
@@ -24,6 +26,10 @@ interface LoggedSet {
   reps: number;
 }
 
+/** ID ćwiczenia użytego jako opcjonalny finisher core na końcu treningu. */
+const FINISHER_ID = 'plank';
+const REST_SECONDS = 90;
+
 export default function WorkoutScreen() {
   const { workoutId } = useLocalSearchParams<{ workoutId: string }>();
   const insets = useSafeAreaInsets();
@@ -31,6 +37,7 @@ export default function WorkoutScreen() {
 
   const uid = useStore((s) => s.uid);
   const plan = useStore((s) => s.plan);
+  const exercises = useStore((s) => s.exercises);
   const exerciseById = useStore((s) => s.exerciseById);
 
   const workout = useMemo(
@@ -45,6 +52,11 @@ export default function WorkoutScreen() {
   const [reps, setReps] = useState('');
   const [saving, setSaving] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  /** Podmiany ćwiczeń — TYLKO na dziś (indeks kroku → nowe exerciseId). */
+  const [swaps, setSwaps] = useState<Record<number, string>>({});
+  const [swapOpen, setSwapOpen] = useState(false);
+  /** Nonce rest timera; null = ukryty. */
+  const [restNonce, setRestNonce] = useState<number | null>(null);
 
   const totalLogged = Object.values(logged).reduce((n, arr) => n + arr.length, 0);
 
@@ -57,23 +69,25 @@ export default function WorkoutScreen() {
     return id;
   }
 
-  async function saveSet(current: { exerciseId: string }) {
+  async function saveSet(cur: { exerciseId: string; targetSets: number; timed: boolean; bodyweight: boolean }) {
     if (!uid || saving) return;
-    const bw = !!exerciseById(current.exerciseId)?.bodyweight;
-    const w = bw ? 0 : parseFloat(weight.replace(',', '.'));
+    const w = cur.bodyweight ? 0 : parseFloat(weight.replace(',', '.'));
     const r = parseInt(reps, 10);
-    if (isNaN(r) || r <= 0 || (!bw && isNaN(w))) return;
+    if (isNaN(r) || r <= 0 || (!cur.bodyweight && isNaN(w))) return;
     setSaving(true);
     try {
       const sid = await ensureSession();
       if (!sid) return;
-      const setNumber = (logged[current.exerciseId]?.length ?? 0) + 1;
-      await logSet(uid, sid, { exerciseId: current.exerciseId, setNumber, weight: w, reps: r });
+      const setNumber = (logged[cur.exerciseId]?.length ?? 0) + 1;
+      await logSet(uid, sid, { exerciseId: cur.exerciseId, setNumber, weight: w, reps: r });
       setLogged((prev) => ({
         ...prev,
-        [current.exerciseId]: [...(prev[current.exerciseId] ?? []), { weight: w, reps: r }],
+        [cur.exerciseId]: [...(prev[cur.exerciseId] ?? []), { weight: w, reps: r }],
       }));
       setReps(''); // waga zostaje na kolejną serię
+      // Rest timer: start tylko jeśli to NIE ostatnia sugerowana seria i ćwiczenie nie jest „timed".
+      if (!cur.timed && setNumber < cur.targetSets) setRestNonce(Date.now());
+      else setRestNonce(null);
     } finally {
       setSaving(false);
     }
@@ -99,19 +113,42 @@ export default function WorkoutScreen() {
   }
 
   const total = workout.exercises.length;
-  const current = workout.exercises[index];
-  const exercise = exerciseById(current.exerciseId);
+  const plankEx = exerciseById(FINISHER_ID);
+  const hasFinisher = !!plankEx;
+  const stepCount = total + (hasFinisher ? 1 : 0);
+  const isFinisher = hasFinisher && index === total;
+  const isLastStep = index === stepCount - 1;
+
+  const slot = isFinisher ? null : workout.exercises[index];
+  const effId = isFinisher ? FINISHER_ID : (slot ? swaps[index] ?? slot.exerciseId : FINISHER_ID);
+  const exercise = exerciseById(effId);
   const isBW = !!exercise?.bodyweight;
   const isTimed = !!exercise?.timed;
-  const currentSets = logged[current.exerciseId] ?? [];
-  const isLast = index === total - 1;
+  const currentSets = logged[effId] ?? [];
+  const targetSets = isFinisher ? 1 : slot!.targetSets;
+
+  const alternatives = exercise
+    ? Object.values(exercises)
+        .filter((e) => e.muscleGroup === exercise.muscleGroup && e.id !== exercise.id)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
 
   function go(delta: number) {
     const ni = index + delta;
-    if (ni < 0 || ni >= total) return;
+    if (ni < 0 || ni >= stepCount) return;
     setIndex(ni);
     setWeight('');
     setReps('');
+    setRestNonce(null);
+    setSwapOpen(false);
+  }
+
+  function applySwap(altId: string) {
+    setSwaps((prev) => ({ ...prev, [index]: altId }));
+    setSwapOpen(false);
+    setWeight('');
+    setReps('');
+    setRestNonce(null);
   }
 
   return (
@@ -134,15 +171,20 @@ export default function WorkoutScreen() {
         >
           {/* Postęp */}
           <View style={styles.progressRow}>
-            {workout.exercises.map((_, i) => (
+            {Array.from({ length: stepCount }).map((_, i) => (
               <View
                 key={i}
-                style={[styles.progressDot, i === index && styles.progressDotActive, i < index && styles.progressDotDone]}
+                style={[
+                  styles.progressDot,
+                  i === index && styles.progressDotActive,
+                  i < index && styles.progressDotDone,
+                  hasFinisher && i === total && styles.progressDotFinisher,
+                ]}
               />
             ))}
           </View>
           <Text style={styles.counter}>
-            Exercise {index + 1} / {total}
+            {isFinisher ? 'Core finisher · optional' : `Exercise ${index + 1} / ${total}`}
           </Text>
 
           {exercise && (
@@ -150,7 +192,21 @@ export default function WorkoutScreen() {
               <View style={styles.gifWrap}>
                 <GifImage uri={exercise.imageUrl} accent={palette.accent} height={220} rounded={radius.lg} />
               </View>
-              <Text style={styles.exName}>{exercise.name}</Text>
+
+              <View style={styles.nameRow}>
+                <Text style={styles.exName}>{exercise.name}</Text>
+                {!isFinisher && alternatives.length > 0 && (
+                  <Pressable
+                    onPress={() => setSwapOpen(true)}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.swapBtn, pressed && styles.pressed]}
+                  >
+                    <MaterialCommunityIcons name="swap-horizontal" size={18} color={palette.accent} />
+                    <Text style={styles.swapText}>Swap</Text>
+                  </Pressable>
+                )}
+              </View>
+
               <View style={styles.metaRow}>
                 <View style={styles.muscleTag}>
                   <Text style={styles.muscleText}>{muscleLabel(exercise.muscleGroup)}</Text>
@@ -165,21 +221,33 @@ export default function WorkoutScreen() {
                     <Text style={styles.modeText}>{isTimed ? 'Timed' : 'Bodyweight'}</Text>
                   </View>
                 )}
-                <Text style={styles.target}>
-                  Target: {current.targetSets} × {current.targetReps}
-                  {current.targetRIR ? ` · RIR ${current.targetRIR}` : ''}
-                </Text>
+                {isFinisher ? (
+                  <Text style={styles.target}>Suggested: 60–120s hold</Text>
+                ) : (
+                  <Text style={styles.target}>
+                    Target: {slot!.targetSets} × {slot!.targetReps}
+                    {slot!.targetRIR ? ` · RIR ${slot!.targetRIR}` : ''}
+                  </Text>
+                )}
               </View>
-              {!!exercise.description && <Text style={styles.desc}>{exercise.description}</Text>}
+
+              {isFinisher ? (
+                <Text style={styles.desc}>
+                  Optional core finisher — a brace to end the session. Hold as long as your form
+                  stays clean, or skip it. Beginners ~30–45s, intermediate ~60s, advanced 90–120s.
+                </Text>
+              ) : (
+                !!exercise.description && <Text style={styles.desc}>{exercise.description}</Text>
+              )}
             </>
           )}
 
           {/* Zalogowane serie */}
           <Text style={styles.setsHeader}>
-            Sets ({currentSets.length}/{current.targetSets})
+            {isFinisher ? `Holds (${currentSets.length})` : `Sets (${currentSets.length}/${targetSets})`}
           </Text>
           {currentSets.length === 0 ? (
-            <Text style={styles.noSets}>Log your first set below.</Text>
+            <Text style={styles.noSets}>{isFinisher ? 'Log a hold below, or skip.' : 'Log your first set below.'}</Text>
           ) : (
             currentSets.map((s, i) => (
               <View key={i} style={styles.setRow}>
@@ -224,7 +292,7 @@ export default function WorkoutScreen() {
               />
             </View>
             <Pressable
-              onPress={() => saveSet(current)}
+              onPress={() => saveSet({ exerciseId: effId, targetSets, timed: isTimed, bodyweight: isBW })}
               disabled={saving}
               style={({ pressed }) => [styles.addBtn, saving && styles.addBtnDisabled, pressed && styles.pressed]}
             >
@@ -237,6 +305,11 @@ export default function WorkoutScreen() {
           </View>
         </ScrollView>
 
+        {/* Rest timer (nad stopką) */}
+        {restNonce !== null && (
+          <RestTimer nonce={restNonce} duration={REST_SECONDS} onDismiss={() => setRestNonce(null)} />
+        )}
+
         {/* Dolna nawigacja */}
         <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.sm }]}>
           <Pressable onPress={() => go(-1)} disabled={index === 0} style={[styles.navBtn, index === 0 && styles.navBtnDisabled]}>
@@ -244,7 +317,7 @@ export default function WorkoutScreen() {
             <Text style={styles.navText}>Previous</Text>
           </Pressable>
 
-          {isLast ? (
+          {isLastStep ? (
             <Pressable onPress={finish} disabled={finishing} style={[styles.navBtn, styles.finishBtn]}>
               {finishing ? (
                 <ActivityIndicator color={palette.accentDark} />
@@ -257,12 +330,45 @@ export default function WorkoutScreen() {
             </Pressable>
           ) : (
             <Pressable onPress={() => go(1)} style={[styles.navBtn, styles.nextBtn]}>
-              <Text style={styles.nextText}>Next</Text>
+              <Text style={styles.nextText}>{hasFinisher && index === total - 1 ? 'Finisher' : 'Next'}</Text>
               <MaterialCommunityIcons name="chevron-right" size={22} color={palette.accentDark} />
             </Pressable>
           )}
         </View>
       </KeyboardAvoidingView>
+
+      {/* Swap — arkusz z alternatywami z tej samej partii (tylko na dziś) */}
+      <Modal visible={swapOpen} transparent animationType="slide" onRequestClose={() => setSwapOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setSwapOpen(false)}>
+          <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Swap exercise</Text>
+            <Text style={styles.sheetSub}>
+              {exercise ? muscleLabel(exercise.muscleGroup) : ''} alternatives · today only
+            </Text>
+            <ScrollView style={styles.sheetList} showsVerticalScrollIndicator={false}>
+              {alternatives.map((alt) => {
+                const isCurrent = alt.id === effId;
+                return (
+                  <Pressable
+                    key={alt.id}
+                    onPress={() => applySwap(alt.id)}
+                    style={({ pressed }) => [styles.altRow, pressed && styles.pressed]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.altName}>{alt.name}</Text>
+                      {(alt.bodyweight || alt.timed) && (
+                        <Text style={styles.altMeta}>{alt.timed ? 'Timed' : 'Bodyweight'}</Text>
+                      )}
+                    </View>
+                    {isCurrent && <MaterialCommunityIcons name="check" size={20} color={palette.accent} />}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
@@ -276,9 +382,13 @@ const styles = StyleSheet.create({
   progressDot: { flex: 1, height: 4, borderRadius: 2, backgroundColor: palette.border },
   progressDotActive: { backgroundColor: palette.accent },
   progressDotDone: { backgroundColor: palette.accent, opacity: 0.5 },
+  progressDotFinisher: { borderWidth: 1, borderColor: palette.accent, backgroundColor: 'transparent' },
   counter: { color: palette.textMuted, fontSize: 13, marginBottom: spacing.md },
   gifWrap: { borderRadius: radius.lg, borderWidth: 2, borderColor: palette.accent, overflow: 'hidden', marginBottom: spacing.md },
-  exName: { color: palette.text, fontSize: 22, fontWeight: '900', lineHeight: 27 },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm },
+  exName: { color: palette.text, fontSize: 22, fontWeight: '900', lineHeight: 27, flex: 1 },
+  swapBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: palette.accent, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, marginTop: 2 },
+  swapText: { color: palette.accent, fontSize: 13, fontWeight: '800' },
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
   muscleTag: { backgroundColor: palette.accentDim, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 },
   muscleText: { color: palette.accent, fontSize: 12, fontWeight: '700' },
@@ -308,4 +418,14 @@ const styles = StyleSheet.create({
   nextText: { color: palette.accentDark, fontSize: 15, fontWeight: '900' },
   finishBtn: { backgroundColor: palette.accent },
   finishText: { color: palette.accentDark, fontSize: 15, fontWeight: '900' },
+  // Swap sheet
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: palette.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, maxHeight: '75%' },
+  sheetHandle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: palette.border, marginBottom: spacing.md },
+  sheetTitle: { color: palette.text, fontSize: 18, fontWeight: '900' },
+  sheetSub: { color: palette.textMuted, fontSize: 13, fontWeight: '600', marginTop: 2, marginBottom: spacing.md },
+  sheetList: { flexGrow: 0 },
+  altRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: palette.card, borderRadius: radius.sm, borderWidth: 1, borderColor: palette.border, paddingVertical: spacing.md, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
+  altName: { color: palette.text, fontSize: 15, fontWeight: '700' },
+  altMeta: { color: palette.textMuted, fontSize: 12, fontWeight: '600', marginTop: 2 },
 });
