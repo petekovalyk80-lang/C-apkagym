@@ -64,9 +64,12 @@ Onboarding (3/4/6 → instantiate template copy) · Home (top card shows the **s
 - **Secrets (gitignored, never commit):** `*firebase-adminsdk*.json` (admin key, used only by seed), `google-services.json`. The Firebase web `apiKey` in `lib/firebase.ts` is a **public client id** (safe; security is Firestore rules).
 
 ## Agreed feature roadmap (user, Sep 2026)
-Priority order the user approved: **1) plank finisher ✅ · 2) rest timer ✅ · 3) exercise swap ✅ · 4) Off Gym ✅ · 5a) charts ✅ · 5b) auto-progression (TODO).**
+Priority order the user approved: **1) plank finisher ✅ · 2) rest timer ✅ · 3) exercise swap ✅ · 4) Off Gym ✅ · 5a) charts ✅ · 5b) auto-progression ✅.** Roadmap 1–5 DONE.
 - **Charts ✅** — **Progress** tab: per-exercise **estimated 1RM** line chart (Epley on the best set each session; bodyweight/timed → best reps/hold). Aggregated **client-side** in `fetchExerciseHistory()` (NO `collectionGroup`, NO Firestore index — works under existing owner rules). Chart = `components/LineChart.tsx` on **react-native-svg** (Expo Go OK). Dev tool `scripts/seed-demo.js <uid> [--clean]` injects demo history.
-- **Auto-progression (TODO, 5b).** "Beat your last": on the workout screen show the current exercise's top set / est 1RM from last time and suggest the next target. Data path already exists (`fetchExerciseHistory`). Small task, no new screen.
+- **Auto-progression ✅** — workout screen shows each exercise's **last top set** + a **"Beat it"** target (double progression: at top of rep range → +2.5 kg back to bottom, else same weight +1 rep; bodyweight +1 rep; timed +5 s). `ProgressPoint.topWeight/topReps`, `suggestNext()` in `app/workout/[workoutId].tsx`.
+
+## Next big topic — AUTH (user requested, Sep 2026)
+Open real accounts so each lifter's data follows them across devices; security = "1 user = only their data" (already enforced by owner-only Firestore rules). Plan: **guest-first**, then **`linkWithCredential`** on the existing anonymous user → same `uid`, **zero data migration**. Email/password first (works in Expo Go), **Google** next (needs config, shines in a real build). Add a Welcome screen + Create-account / Sign-in + an Account/settings entry (sign out, linked email) + password reset. **Visual mockup** (dark neon theme): artifact `https://claude.ai/code/artifact/c1b1891e-3426-48c3-b338-73a4ed3156bb`. Confirm before building: guest-first vs forced account; Google now vs later; where "Account" lives; App Check before public release. See also old Next-steps #2.
 
 ## Next steps (do each in a fresh session)
 1. ~~Exercise "Action & effects" descriptions~~ **DONE** — `effects` on all exercises, rendered on exercise detail.
