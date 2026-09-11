@@ -2,9 +2,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import * as fbAuth from 'firebase/auth';
 import {
+  EmailAuthProvider,
+  createUserWithEmailAndPassword,
   getAuth,
   initializeAuth,
+  linkWithCredential,
+  sendPasswordResetEmail,
   signInAnonymously,
+  signInWithEmailAndPassword,
+  signOut,
   type Auth,
   type Persistence,
 } from 'firebase/auth';
@@ -70,4 +76,51 @@ export async function ensureAnonymousAuth(): Promise<string> {
   if (auth.currentUser) return auth.currentUser.uid;
   const cred = await signInAnonymously(auth);
   return cred.user.uid;
+}
+
+// ── Konta użytkowników (Etap 1: email/hasło + gość) ───────────────────
+
+/** Rozpoczyna sesję gościa (anonimową) i zwraca uid. */
+export async function startGuest(): Promise<string> {
+  const cred = await signInAnonymously(auth);
+  return cred.user.uid;
+}
+
+/** Logowanie istniejącym kontem email/hasło. Zwraca uid tego konta. */
+export async function signInEmail(email: string, password: string): Promise<string> {
+  const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+  return cred.user.uid;
+}
+
+/**
+ * Tworzy konto email/hasło. Jeśli obecny user jest gościem (anonimowy),
+ * PODPINA konto do tego samego `uid` (linkWithCredential) → zero migracji danych.
+ * W innym wypadku tworzy świeże konto.
+ */
+export async function createAccountEmail(email: string, password: string): Promise<string> {
+  const cur = auth.currentUser;
+  const mail = email.trim();
+  if (cur && cur.isAnonymous) {
+    const credential = EmailAuthProvider.credential(mail, password);
+    const res = await linkWithCredential(cur, credential);
+    return res.user.uid;
+  }
+  const cred = await createUserWithEmailAndPassword(auth, mail, password);
+  return cred.user.uid;
+}
+
+/** Wylogowanie (po nim brak zalogowanego użytkownika → ekran powitalny). */
+export async function signOutUser(): Promise<void> {
+  await signOut(auth);
+}
+
+/** Mail resetujący hasło. */
+export async function sendReset(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email.trim());
+}
+
+/** Bieżący stan konta (bez subskrypcji do Firestore). */
+export function currentAuthInfo(): { uid: string | null; isAnonymous: boolean; email: string | null } {
+  const u = auth.currentUser;
+  return { uid: u?.uid ?? null, isAnonymous: !!u?.isAnonymous, email: u?.email ?? null };
 }

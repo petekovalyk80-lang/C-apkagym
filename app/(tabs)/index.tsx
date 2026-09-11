@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GifImage from '@/components/GifImage';
 import { palette, radius, spacing } from '@/constants/theme';
 import { OFF_GYM_TEMPLATE_ID, computeNextWorkout, getLastGymSession } from '@/lib/db';
+import { guestDaysLeft } from '@/lib/trial';
 import type { SessionDoc, Workout } from '@/lib/types';
 import { useStore } from '@/store/useStore';
 
@@ -16,6 +17,8 @@ export default function HomeScreen() {
   const user = useStore((s) => s.user);
   const plan = useStore((s) => s.plan);
   const uid = useStore((s) => s.uid);
+  const authed = useStore((s) => s.authed);
+  const isAnonymous = useStore((s) => s.isAnonymous);
   const exercises = useStore((s) => s.exercises);
 
   const [next, setNext] = useState<Workout | null>(null);
@@ -41,9 +44,18 @@ export default function HomeScreen() {
     }, [uid, plan]),
   );
 
+  // Nikt nie zalogowany → ekran powitalny
+  if (!authed) {
+    return <Redirect href="/welcome" />;
+  }
   // Brak planu → onboarding
   if (!user || !plan) {
     return <Redirect href="/onboarding" />;
+  }
+  // Gość po 14 dniach → ściana konta
+  const daysLeft = guestDaysLeft(user.createdAt);
+  if (isAnonymous && daysLeft <= 0) {
+    return <Redirect href="/upgrade" />;
   }
 
   const workouts = [...plan.workouts].sort((a, b) => a.order - b.order);
@@ -69,6 +81,15 @@ export default function HomeScreen() {
         <Text style={styles.brand}>ANVIL</Text>
         <Text style={styles.byline}>by PeteKovSoftware</Text>
       </View>
+
+      {isAnonymous && (
+        <Pressable onPress={() => router.push({ pathname: '/auth', params: { mode: 'create' } })} style={({ pressed }) => [styles.trialBanner, pressed && styles.pressed]}>
+          <MaterialCommunityIcons name="clock-outline" size={16} color={palette.accent} />
+          <Text style={styles.trialText}>Guest · {daysLeft} day{daysLeft === 1 ? '' : 's'} left</Text>
+          <Text style={styles.trialCta}>Create account</Text>
+          <MaterialCommunityIcons name="chevron-right" size={18} color={palette.accent} />
+        </Pressable>
+      )}
 
       {/* Karta wybranego treningu (domyślnie następny) */}
       <Text style={styles.sectionLabel}>{isNextSelected ? 'NEXT WORKOUT' : 'WORKOUT PREVIEW'}</Text>
@@ -182,6 +203,9 @@ const styles = StyleSheet.create({
   brand: { color: palette.text, fontSize: 18, fontWeight: '900', letterSpacing: 3 },
   byline: { color: palette.textFaint, fontSize: 11, fontWeight: '600', alignSelf: 'flex-end', marginBottom: 2, marginLeft: -2 },
   sectionLabel: { color: palette.textFaint, fontSize: 11, fontWeight: '800', letterSpacing: 1, paddingHorizontal: spacing.lg, marginBottom: spacing.sm },
+  trialBanner: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginHorizontal: spacing.lg, marginBottom: spacing.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: palette.accent, backgroundColor: palette.accentDim },
+  trialText: { color: palette.text, fontSize: 13, fontWeight: '700', flex: 1 },
+  trialCta: { color: palette.accent, fontSize: 13, fontWeight: '900' },
   nextCard: {
     backgroundColor: palette.card,
     marginHorizontal: spacing.lg,

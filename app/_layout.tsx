@@ -93,6 +93,9 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="welcome" options={{ headerShown: false }} />
+        <Stack.Screen name="auth" options={{ headerBackTitle: 'Back' }} />
+        <Stack.Screen name="upgrade" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="plan-select" options={{ title: 'Change plan', headerBackTitle: 'Back' }} />
         <Stack.Screen name="day/[date]" options={{ title: 'Day details', headerBackTitle: 'Back' }} />
