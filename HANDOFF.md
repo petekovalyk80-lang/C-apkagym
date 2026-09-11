@@ -45,10 +45,11 @@ Onboarding (3/4/6 → instantiate template copy) · Home (top card shows the **s
 - **Exercise swap** (workout screen): per-exercise sheet of same-`muscleGroup` alternatives; applies **today only**, keeps the slot's sets/reps/RIR. Local state, resets on leaving.
 - **Optional plank finisher**: virtual extra step after the last exercise (id `plank`); timed hold, fully skippable via "Finish workout". Logged as a normal `plank` set; doesn't affect rotation.
 - **Off Gym** (bodyweight bootcamp): startable from Home; `off-gym-bootcamp` template (9 moves), session flagged `offGym:true`. **Rotation-safe** via `getLastGymSession()` (skips off-gym). History colours off-gym-only days **turquoise** (`palette.offgym`), gym days green; day details show an "OFF GYM" tag.
+- **Progress tab**: per-exercise est-1RM line chart (`app/(tabs)/progress.tsx`, `components/LineChart.tsx`, `fetchExerciseHistory` in `lib/db.ts`). 4th tab, `chart-line` icon.
 
 ## Key files
 - `app/_layout.tsx` — root, `BrandSplash` (logo, min 2.2s), Stack routes.
-- `app/(tabs)/_layout.tsx` — tabs Workout/History/Atlas · `index.tsx` (home) · `history.tsx` (calendar) · `atlas.tsx`.
+- `app/(tabs)/_layout.tsx` — tabs Workout/History/Atlas/Progress · `index.tsx` (home) · `history.tsx` (calendar) · `atlas.tsx` · `progress.tsx` (est-1RM charts).
 - `app/onboarding.tsx`, `app/plan-select.tsx`, `app/workout/[workoutId].tsx`, `app/day/[date].tsx`, `app/exercise/[id].tsx`.
 - `lib/firebase.ts` (init + `ensureAnonymousAuth`), `lib/db.ts` (all Firestore fns), `lib/types.ts`.
 - `store/useStore.ts` (bootstrap, exercises map, plan, `completeOnboarding`, `switchPlan`).
@@ -63,8 +64,9 @@ Onboarding (3/4/6 → instantiate template copy) · Home (top card shows the **s
 - **Secrets (gitignored, never commit):** `*firebase-adminsdk*.json` (admin key, used only by seed), `google-services.json`. The Firebase web `apiKey` in `lib/firebase.ts` is a **public client id** (safe; security is Firestore rules).
 
 ## Agreed feature roadmap (user, Sep 2026)
-Priority order the user approved: **1) plank finisher ✅ · 2) rest timer ✅ · 3) exercise swap ✅ · 4) Off Gym ✅ · 5) charts + auto-progression (TODO).** Items 1–4 are DONE (see "Added this round"). Remaining headline item:
-- **Charts + auto-progression.** Progress charts via `collectionGroup('sets')` grouped by `exerciseId` over `completedAt` (est. 1RM / top-set / volume trend). Auto-progression = "beat your last": show last session's top set for the current exercise on the workout screen and suggest the next target. Likely a new tab or a section on exercise detail. Note: `collectionGroup` needs a Firestore composite index — expect to add one.
+Priority order the user approved: **1) plank finisher ✅ · 2) rest timer ✅ · 3) exercise swap ✅ · 4) Off Gym ✅ · 5a) charts ✅ · 5b) auto-progression (TODO).**
+- **Charts ✅** — **Progress** tab: per-exercise **estimated 1RM** line chart (Epley on the best set each session; bodyweight/timed → best reps/hold). Aggregated **client-side** in `fetchExerciseHistory()` (NO `collectionGroup`, NO Firestore index — works under existing owner rules). Chart = `components/LineChart.tsx` on **react-native-svg** (Expo Go OK). Dev tool `scripts/seed-demo.js <uid> [--clean]` injects demo history.
+- **Auto-progression (TODO, 5b).** "Beat your last": on the workout screen show the current exercise's top set / est 1RM from last time and suggest the next target. Data path already exists (`fetchExerciseHistory`). Small task, no new screen.
 
 ## Next steps (do each in a fresh session)
 1. ~~Exercise "Action & effects" descriptions~~ **DONE** — `effects` on all exercises, rendered on exercise detail.
