@@ -17,6 +17,7 @@ import type {
   Exercise,
   Plan,
   PlanTemplate,
+  ProgressPoint,
   SessionDoc,
   SetEntry,
   UserDoc,
@@ -219,4 +220,48 @@ export async function fetchSessionSets(uid: string, sessionId: string): Promise<
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SetEntry, 'id'>) }));
+}
+
+// ── Progres (wykresy) ─────────────────────────────────────────────────
+
+const epley = (weight: number, reps: number) => (weight > 0 ? weight * (1 + reps / 30) : 0);
+
+/**
+ * Historia progresu per ćwiczenie, zagregowana KLIENTOWO (bez collectionGroup /
+ * indeksów): dla każdej sesji bierze jej serie i sprowadza do jednego punktu na
+ * ćwiczenie (najlepsze wartości tego dnia). Zwraca serie posortowane rosnąco po dacie.
+ */
+export async function fetchExerciseHistory(uid: string): Promise<Record<string, ProgressPoint[]>> {
+  const sessions = await fetchSessions(uid);
+  const perSession = await Promise.all(
+    sessions.map((s) => fetchSessionSets(uid, s.id).then((sets) => ({ s, sets }))),
+  );
+
+  const result: Record<string, ProgressPoint[]> = {};
+  for (const { s, sets } of perSession) {
+    if (!s.date) continue;
+    const byEx = new Map<string, SetEntry[]>();
+    for (const set of sets) {
+      if (!byEx.has(set.exerciseId)) byEx.set(set.exerciseId, []);
+      byEx.get(set.exerciseId)!.push(set);
+    }
+    for (const [exId, exSets] of byEx) {
+      let e1rm = 0;
+      let bestWeight = 0;
+      let bestReps = 0;
+      for (const st of exSets) {
+        e1rm = Math.max(e1rm, epley(st.weight, st.reps));
+        bestWeight = Math.max(bestWeight, st.weight);
+        bestReps = Math.max(bestReps, st.reps);
+      }
+      (result[exId] ??= []).push({
+        date: s.date,
+        e1rm: Math.round(e1rm * 10) / 10,
+        bestWeight,
+        bestReps,
+      });
+    }
+  }
+  for (const k in result) result[k].sort((a, b) => a.date.toMillis() - b.date.toMillis());
+  return result;
 }

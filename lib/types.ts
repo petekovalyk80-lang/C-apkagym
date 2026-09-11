@@ -81,3 +81,15 @@ export interface SetEntry {
   reps: number;
   completedAt: Timestamp;
 }
+
+/** Punkt progresu jednego ćwiczenia = jeden trening (agregat najlepszych serii tego dnia). */
+export interface ProgressPoint {
+  /** Data treningu. */
+  date: Timestamp;
+  /** Szacowany 1RM (Epley) z najlepszej serii; 0 dla ćwiczeń bez obciążenia. */
+  e1rm: number;
+  /** Najcięższa seria (kg) w treningu. */
+  bestWeight: number;
+  /** Najlepsze powtórzenia/sekundy (dla bodyweight/timed to główna metryka). */
+  bestReps: number;
+}
