@@ -249,16 +249,27 @@ export async function fetchExerciseHistory(uid: string): Promise<Record<string, 
       let e1rm = 0;
       let bestWeight = 0;
       let bestReps = 0;
+      let topWeight = 0;
+      let topReps = 0;
       for (const st of exSets) {
-        e1rm = Math.max(e1rm, epley(st.weight, st.reps));
+        const est = epley(st.weight, st.reps);
+        if (est > e1rm || (est === e1rm && st.reps > topReps)) {
+          e1rm = est;
+          topWeight = st.weight;
+          topReps = st.reps;
+        }
         bestWeight = Math.max(bestWeight, st.weight);
         bestReps = Math.max(bestReps, st.reps);
       }
+      // Dla bodyweight/timed (e1rm=0) „top serią" jest najlepsze powtórzenie/sekunda.
+      if (topReps === 0) topReps = bestReps;
       (result[exId] ??= []).push({
         date: s.date,
         e1rm: Math.round(e1rm * 10) / 10,
         bestWeight,
         bestReps,
+        topWeight,
+        topReps,
       });
     }
   }

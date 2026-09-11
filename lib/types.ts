@@ -92,4 +92,8 @@ export interface ProgressPoint {
   bestWeight: number;
   /** Najlepsze powtórzenia/sekundy (dla bodyweight/timed to główna metryka). */
   bestReps: number;
+  /** Waga (kg) serii, która dała najlepszy e1RM — do „ostatnio: X kg × Y". */
+  topWeight: number;
+  /** Powtórzenia tej najlepszej serii. */
+  topReps: number;
 }

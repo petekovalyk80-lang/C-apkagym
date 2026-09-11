@@ -18,9 +18,31 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GifImage from '@/components/GifImage';
 import RestTimer from '@/components/RestTimer';
 import { muscleLabel, palette, radius, spacing } from '@/constants/theme';
-import { OFF_GYM_TEMPLATE_ID, completeSession, fetchTemplate, logSet, startSession } from '@/lib/db';
-import type { Workout } from '@/lib/types';
+import { OFF_GYM_TEMPLATE_ID, completeSession, fetchExerciseHistory, fetchTemplate, logSet, startSession } from '@/lib/db';
+import type { Exercise, ProgressPoint, Workout } from '@/lib/types';
 import { useStore } from '@/store/useStore';
+
+/** Parsuje górną granicę zakresu powtórzeń ("6-8" → 8, "12" → 12). */
+function upperReps(reps: string): number {
+  const m = reps.match(/(\d+)\s*-\s*(\d+)/);
+  if (m) return parseInt(m[2], 10);
+  const n = parseInt(reps, 10);
+  return isNaN(n) ? 0 : n;
+}
+function lowerReps(reps: string): number {
+  const m = reps.match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+/** Auto-progresja „pobij poprzedni" — sugestia następnego celu na bazie ostatniej top-serii. */
+function suggestNext(ex: Exercise | undefined, targetReps: string, last: ProgressPoint): string {
+  if (ex?.timed) return `${last.topReps + 5} s`;
+  if (ex?.bodyweight) return `${last.topReps + 1} reps`;
+  const up = upperReps(targetReps);
+  // Podwójna progresja: dobiłeś górę zakresu → +2.5 kg i wróć do dołu; inaczej +1 powt.
+  if (up && last.topReps >= up) return `${last.topWeight + 2.5} kg × ${lowerReps(targetReps) || last.topReps}`;
+  return `${last.topWeight} kg × ${last.topReps + 1}`;
+}
 
 interface LoggedSet {
   weight: number;
@@ -71,6 +93,24 @@ export default function WorkoutScreen() {
   const [swapOpen, setSwapOpen] = useState(false);
   /** Nonce rest timera; null = ukryty. */
   const [restNonce, setRestNonce] = useState<number | null>(null);
+  /** Ostatni występ każdego ćwiczenia (do „pobij poprzedni"). */
+  const [lastPerf, setLastPerf] = useState<Record<string, ProgressPoint>>({});
+
+  useEffect(() => {
+    if (!uid) return;
+    let active = true;
+    (async () => {
+      const h = await fetchExerciseHistory(uid);
+      if (!active) return;
+      const map: Record<string, ProgressPoint> = {};
+      for (const k in h) {
+        const arr = h[k];
+        if (arr.length) map[k] = arr[arr.length - 1];
+      }
+      setLastPerf(map);
+    })();
+    return () => { active = false; };
+  }, [uid]);
 
   const totalLogged = Object.values(logged).reduce((n, arr) => n + arr.length, 0);
 
@@ -261,6 +301,29 @@ export default function WorkoutScreen() {
             </>
           )}
 
+          {/* Auto-progresja: ostatni występ + sugestia „pobij poprzedni" */}
+          {!isFinisher && lastPerf[effId] && (
+            <View style={styles.lastRow}>
+              <View style={styles.lastBox}>
+                <Text style={styles.lastLabel}>Last time</Text>
+                <Text style={styles.lastValue}>
+                  {isBW
+                    ? `${lastPerf[effId].topReps} ${isTimed ? 's' : 'reps'}`
+                    : `${lastPerf[effId].topWeight} kg × ${lastPerf[effId].topReps}`}
+                </Text>
+                {!isBW && lastPerf[effId].e1rm > 0 && (
+                  <Text style={styles.lastSub}>est. 1RM {lastPerf[effId].e1rm} kg</Text>
+                )}
+              </View>
+              <View style={[styles.lastBox, styles.suggestBox]}>
+                <Text style={[styles.lastLabel, styles.suggestLabel]}>Beat it 💪</Text>
+                <Text style={[styles.lastValue, styles.suggestValue]}>
+                  {suggestNext(exercise, slot ? slot.targetReps : '', lastPerf[effId])}
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* Zalogowane serie */}
           <Text style={styles.setsHeader}>
             {isFinisher ? `Holds (${currentSets.length})` : `Sets (${currentSets.length}/${targetSets})`}
@@ -415,6 +478,14 @@ const styles = StyleSheet.create({
   modeText: { color: palette.textMuted, fontSize: 12, fontWeight: '700' },
   target: { color: palette.textMuted, fontSize: 13, fontWeight: '600' },
   desc: { color: palette.textMuted, fontSize: 14, lineHeight: 20, marginTop: spacing.md },
+  lastRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
+  lastBox: { flex: 1, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.border, borderRadius: radius.md, padding: spacing.md },
+  suggestBox: { borderColor: palette.accent, backgroundColor: palette.accentDim },
+  lastLabel: { color: palette.textFaint, fontSize: 11, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase' },
+  suggestLabel: { color: palette.accent },
+  lastValue: { color: palette.text, fontSize: 17, fontWeight: '900', marginTop: 4 },
+  suggestValue: { color: palette.accent },
+  lastSub: { color: palette.textMuted, fontSize: 12, fontWeight: '600', marginTop: 2 },
   setsHeader: { color: palette.text, fontSize: 15, fontWeight: '800', marginTop: spacing.xl, marginBottom: spacing.sm },
   noSets: { color: palette.textFaint, fontSize: 13, marginBottom: spacing.sm },
   setRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: palette.card, borderRadius: radius.sm, borderWidth: 1, borderColor: palette.border, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
