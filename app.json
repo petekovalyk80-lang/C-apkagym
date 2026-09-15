@@ -10,7 +10,10 @@
     "backgroundColor": "#0E1512",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.petekovsoftware.anvil"
+      "bundleIdentifier": "com.petekovsoftware.anvil",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.petekovsoftware.anvil",
