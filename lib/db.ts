@@ -205,6 +205,38 @@ export async function completeSession(uid: string, sessionId: string): Promise<v
   });
 }
 
+/** Niezakończona sesja do wznowienia + jej zalogowane serie. */
+export interface OpenSession {
+  sessionId: string;
+  sets: SetEntry[];
+}
+
+/**
+ * Szuka DZISIEJSZEJ niezakończonej sesji dla danego treningu — do auto-wznowienia
+ * po przypadkowym zamknięciu apki. Bez indeksu złożonego: bierze ostatnie sesje po
+ * `startedAt` i filtruje klientowo (completedAt==null, ten sam workoutId, dziś).
+ * Ogranicza się do dziś, żeby porzucona sesja sprzed dni nie „ożywała".
+ */
+export async function findOpenSession(uid: string, workoutId: string): Promise<OpenSession | null> {
+  const q = query(
+    collection(db, 'users', uid, 'sessions'),
+    orderBy('startedAt', 'desc'),
+    limit(10),
+  );
+  const snap = await getDocs(q);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  for (const d of snap.docs) {
+    const s = d.data() as Omit<SessionDoc, 'id'>;
+    if (s.completedAt) continue;
+    if (s.workoutId !== workoutId) continue;
+    if (s.startedAt.toMillis() < startOfToday.getTime()) continue;
+    const sets = await fetchSessionSets(uid, d.id);
+    return { sessionId: d.id, sets };
+  }
+  return null;
+}
+
 /** Wszystkie sesje użytkownika (do kalendarza historii), od najnowszej. */
 export async function fetchSessions(uid: string): Promise<SessionDoc[]> {
   const q = query(collection(db, 'users', uid, 'sessions'), orderBy('startedAt', 'desc'));

@@ -1,11 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useKeepAwake } from 'expo-keep-awake';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,9 +16,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import GifImage from '@/components/GifImage';
+import PlankStopwatch from '@/components/PlankStopwatch';
 import RestTimer from '@/components/RestTimer';
 import { muscleLabel, palette, radius, spacing } from '@/constants/theme';
-import { OFF_GYM_TEMPLATE_ID, completeSession, fetchExerciseHistory, fetchTemplate, logSet, startSession } from '@/lib/db';
+import { OFF_GYM_TEMPLATE_ID, completeSession, fetchExerciseHistory, fetchTemplate, findOpenSession, logSet, startSession } from '@/lib/db';
 import type { Exercise, ProgressPoint, Workout } from '@/lib/types';
 import { useStore } from '@/store/useStore';
 
@@ -54,6 +55,8 @@ const FINISHER_ID = 'plank';
 const REST_SECONDS = 90;
 
 export default function WorkoutScreen() {
+  // Trzymaj ekran wybudzony przez cały trening — telefon nie usypia między seriami.
+  useKeepAwake();
   const { workoutId } = useLocalSearchParams<{ workoutId: string }>();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -95,6 +98,10 @@ export default function WorkoutScreen() {
   const [restNonce, setRestNonce] = useState<number | null>(null);
   /** Ostatni występ każdego ćwiczenia (do „pobij poprzedni"). */
   const [lastPerf, setLastPerf] = useState<Record<string, ProgressPoint>>({});
+  /** Ref ScrollView — do przewinięcia pól wejściowych nad klawiaturę. */
+  const scrollRef = useRef<ScrollView>(null);
+  /** Auto-wznowienie sesji odpalamy dokładnie raz. */
+  const resumedRef = useRef(false);
 
   useEffect(() => {
     if (!uid) return;
@@ -111,6 +118,34 @@ export default function WorkoutScreen() {
     })();
     return () => { active = false; };
   }, [uid]);
+
+  // Auto-wznowienie: jeśli apka zamknęła się w trakcie treningu, po powrocie odtwarzamy
+  // dzisiejszą niezakończoną sesję (serie są już w Firestore) i lądujemy na ostatnim ćwiczeniu.
+  useEffect(() => {
+    if (resumedRef.current || !uid || !workout) return;
+    resumedRef.current = true;
+    let active = true;
+    (async () => {
+      const open = await findOpenSession(uid, workout.workoutId);
+      if (!active || !open) return;
+      const map: Record<string, LoggedSet[]> = {};
+      for (const st of open.sets) {
+        (map[st.exerciseId] ??= []).push({ weight: st.weight, reps: st.reps });
+      }
+      const total = workout.exercises.length;
+      const hasFinisher = !!exerciseById(FINISHER_ID);
+      const stepCount = total + (hasFinisher ? 1 : 0);
+      let landing = 0;
+      for (let i = 0; i < stepCount; i++) {
+        const stepId = hasFinisher && i === total ? FINISHER_ID : workout.exercises[i].exerciseId;
+        if (map[stepId]?.length) landing = i;
+      }
+      setSessionId(open.sessionId);
+      setLogged(map);
+      setIndex(landing);
+    })();
+    return () => { active = false; };
+  }, [uid, workout, exerciseById]);
 
   const totalLogged = Object.values(logged).reduce((n, arr) => n + arr.length, 0);
 
@@ -146,6 +181,29 @@ export default function WorkoutScreen() {
     } finally {
       setSaving(false);
     }
+  }
+
+  /** Zapis holdu ze stopera (ćwiczenia `timed`, np. plank) — reps = sekundy, brak wagi. */
+  async function saveHold(exerciseId: string, seconds: number) {
+    if (!uid || saving || seconds <= 0) return;
+    setSaving(true);
+    try {
+      const sid = await ensureSession();
+      if (!sid) return;
+      const setNumber = (logged[exerciseId]?.length ?? 0) + 1;
+      await logSet(uid, sid, { exerciseId, setNumber, weight: 0, reps: seconds });
+      setLogged((prev) => ({
+        ...prev,
+        [exerciseId]: [...(prev[exerciseId] ?? []), { weight: 0, reps: seconds }],
+      }));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Po focusie pola wejściowego przewiń na dół, by rubryki wyszły spod klawiatury. */
+  function handleInputFocus() {
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
   }
 
   async function finish() {
@@ -222,8 +280,10 @@ export default function WorkoutScreen() {
           ),
         }}
       />
-      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.screen}>
         <ScrollView
+          ref={scrollRef}
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 120 }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -347,44 +407,54 @@ export default function WorkoutScreen() {
             ))
           )}
 
-          {/* Wprowadzanie serii */}
-          <View style={styles.inputRow}>
-            {!isBW && (
+          {/* Wprowadzanie serii — dla „timed" (plank) stoper zamiast ręcznego czasu */}
+          {isTimed ? (
+            <PlankStopwatch
+              onSave={(secs) => saveHold(effId, secs)}
+              saving={saving}
+              best={lastPerf[effId]?.topReps}
+            />
+          ) : (
+            <View style={styles.inputRow}>
+              {!isBW && (
+                <View style={styles.inputBox}>
+                  <Text style={styles.inputLabel}>Weight (kg)</Text>
+                  <TextInput
+                    value={weight}
+                    onChangeText={setWeight}
+                    onFocus={handleInputFocus}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor={palette.textFaint}
+                    style={styles.input}
+                  />
+                </View>
+              )}
               <View style={styles.inputBox}>
-                <Text style={styles.inputLabel}>Weight (kg)</Text>
+                <Text style={styles.inputLabel}>Reps</Text>
                 <TextInput
-                  value={weight}
-                  onChangeText={setWeight}
+                  value={reps}
+                  onChangeText={setReps}
+                  onFocus={handleInputFocus}
                   keyboardType="numeric"
                   placeholder="0"
                   placeholderTextColor={palette.textFaint}
                   style={styles.input}
                 />
               </View>
-            )}
-            <View style={styles.inputBox}>
-              <Text style={styles.inputLabel}>{isTimed ? 'Time (sec)' : 'Reps'}</Text>
-              <TextInput
-                value={reps}
-                onChangeText={setReps}
-                keyboardType="numeric"
-                placeholder="0"
-                placeholderTextColor={palette.textFaint}
-                style={styles.input}
-              />
+              <Pressable
+                onPress={() => saveSet({ exerciseId: effId, targetSets, timed: isTimed, bodyweight: isBW })}
+                disabled={saving}
+                style={({ pressed }) => [styles.addBtn, saving && styles.addBtnDisabled, pressed && styles.pressed]}
+              >
+                {saving ? (
+                  <ActivityIndicator color={palette.accentDark} />
+                ) : (
+                  <MaterialCommunityIcons name="plus" size={26} color={palette.accentDark} />
+                )}
+              </Pressable>
             </View>
-            <Pressable
-              onPress={() => saveSet({ exerciseId: effId, targetSets, timed: isTimed, bodyweight: isBW })}
-              disabled={saving}
-              style={({ pressed }) => [styles.addBtn, saving && styles.addBtnDisabled, pressed && styles.pressed]}
-            >
-              {saving ? (
-                <ActivityIndicator color={palette.accentDark} />
-              ) : (
-                <MaterialCommunityIcons name="plus" size={26} color={palette.accentDark} />
-              )}
-            </Pressable>
-          </View>
+          )}
         </ScrollView>
 
         {/* Rest timer (nad stopką) */}
